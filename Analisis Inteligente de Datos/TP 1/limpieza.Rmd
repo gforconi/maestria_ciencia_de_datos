@@ -13,7 +13,7 @@ output:
 <div>
 <p style = 'text-align:center;'>
 <kbd>
-<img src="https://github.com/gforconi/maestria_ciencia_de_datos/blob/main/Analisis%20Inteligente%20de%20Datos/TP%201/img_charly.jpg?raw=true" alt="Imagen de charly" width="300px" />
+<img src="https://github.com/gforconi/maestria_ciencia_de_datos/blob/main/Analisis%20Inteligente%20de%20Datos/TP%201/img_charly.jpg?raw=true" alt="Imagen de Charly" width="300px" />
 </kbd>
 </p>
 </div>
