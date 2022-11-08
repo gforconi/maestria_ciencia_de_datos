@@ -355,6 +355,8 @@ df_solista <- proceso_solista(archivos)
 datatable(data = df_solista, filter = "top", options = list(scrollX = TRUE))
 ```
 
+*Observaciones:* No se observan errores en el data frame cargado
+
 ### Recursividad para temas LMDHP
 
 1. Buscamos todos los archivos dentro de la carpeta **lmdhp** .
@@ -416,6 +418,16 @@ Resultado de la ejecucion de la funcion:
 ```{r recursividadLMDHP_3}
 df_lmdhp <- proceso_maquina_pajaros(df_parametros)
 datatable(data = df_lmdhp, filter = "top", options = list(scrollX = TRUE))
+```
+
+*Observaciones:* No existe la columna `disc_number`. Al ser dos albunes de 7 y 8 temas cada uno ponemos la columna `disc_number` en uno para todos.
+
+```{r recursividadLMDHP_4}
+
+df_lmdhp["disc_number"] <- 1
+
+datatable(data = df_lmdhp, filter = "top", options = list(scrollX = TRUE))
+
 ```
 
 ### Limpieza de objetos
