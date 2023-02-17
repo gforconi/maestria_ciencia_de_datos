@@ -1,0 +1,610 @@
+---
+title: "Gestion de Procesos"
+output:
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: fill
+  html_document:
+    toc: yes
+    toc_float: yes
+    code_folding: hide
+  
+runtime: shiny
+---
+```{css, echo=FALSE}
+#section-estados-de-procesos,
+#section-tipos-de-procesos,
+#section-comparacion-dia-de-la-semana{
+  color: black;
+}
+```
+
+```{r instalacion, include=FALSE}
+#Validamos que las librerias necesarias existan, si no existen las instalamos y cargamos.
+packages <- c( "dplyr",      "flexdashboard",   "readr",
+               "lubridate",  "ggplot2",  "tidyr",
+               "hrbrthemes", "stringr",  "plotly",
+               "DT")
+newPackages <- packages[ !(packages %in% installed.packages()[, "Package"])]
+if(length(newPackages)) install.packages(newPackages)
+for (paquete in packages) {
+  suppressMessages(library(paquete, character.only = TRUE))
+}
+
+#Sys.setlocale("LC_ALL", "es_ES.UTF-8") #mac
+Sys.setlocale("LC_ALL", "Spanish") #windows/linux
+
+#Para buscar iconos
+#https://ionic.io/ionicons/v2/cheatsheet.html 
+
+```
+
+
+```{r setup , echo=FALSE, results='hide'}
+knitr::opts_chunk$set(
+	echo = FALSE,
+	message = FALSE,
+	warning = FALSE
+)
+
+#https://github.com/gforconi/maestria_ciencia_de_datos/blob/main/Analisis%20Inteligente%20de%20Datos/TP%20Final/Datos.zip?raw=true
+
+#Seteamos path y nombre de archivos
+
+dirname <-  '~/Data/tp_final'
+if (!dir.exists(dirname))dir.create(dirname,recursive=TRUE)
+
+carpeta_descarga <- "download"
+archivo_descarga <- "download.zip"
+url_zip <- "https://github.com/gforconi/maestria_ciencia_de_datos/blob/main/Analisis%20Inteligente%20de%20Datos/TP%20Final/Datos.zip?raw=true"
+
+#Descargamos archivos de github
+temp_archivo_descarga <- paste(dirname,archivo_descarga, sep = "/")
+download.file(url_zip,temp_archivo_descarga, mode='wb')
+
+carpeta_descarga <- paste(dirname,carpeta_descarga, sep = "/")
+
+#Descomprimo
+unzip(zipfile = temp_archivo_descarga, unzip = "internal", exdir = carpeta_descarga)
+
+
+rpt <- file.path(carpeta_descarga,"procesos.rpt") 
+procesos <- read_delim(rpt, delim = ";", escape_double = FALSE, trim_ws = TRUE)
+
+
+rpt <- file.path(carpeta_descarga,"estados.rpt") 
+estados <- read_delim(rpt, delim = ";", escape_double = FALSE, trim_ws = TRUE)
+
+rpt <- file.path(carpeta_descarga,"lotes.rpt") 
+lotes <- read_delim(rpt, delim = ";", escape_double = FALSE, trim_ws = TRUE)
+
+#borramos carpeta_desgarga
+unlink('~/Data', recursive = TRUE)
+#borramos carpeta_desgarga
+#unlink(carpeta_descarga, recursive = TRUE)
+#borramos archivo descargado
+##unlink(archivo_descarga, recursive = TRUE)
+
+
+#--------------------------
+
+
+datos <- procesos %>% mutate (
+              Fecha_Desde = mdy_hm(procesos$Fecha_Desde),
+              Fecha_Hasta = mdy_hm(procesos$Fecha_Hasta),
+              Fecha_Inicio = mdy_hm(procesos$Fecha_Inicio),
+              Fecha_Fin = mdy_hm(procesos$Fecha_Fin),
+              Fecha_Filter = ymd(format.Date(Fecha_Inicio, "%Y-%m%-%d")),
+              subfijo = str_to_lower(str_split( #Obtencion de subfijo y conversion a minuscula
+                string = Modulo,
+                pattern = "_",
+                simplify = TRUE
+              )[,1]),
+              Tipo_Proceso = case_when(subfijo == "df" | subfijo == "sp" ~ "Extraccion Core",
+                                       subfijo == "pr" ~ "Programacion",
+                                       subfijo == "tp" ~ "Transformacion Primaria",
+                                       subfijo == "ts" ~ "Transformacion Secundaria",
+                                       subfijo == "tsm" ~ "Procesado de Modelo",
+                                       subfijo == "rp" ~ "Reportes",
+                                       TRUE ~ "Sin Clasificar")
+            ) %>% 
+            select(
+              Proceso_Key, 
+              Estado_Key, 
+              Lote_Key, 
+              Modulo, 
+              Fecha_Desde, 
+              Fecha_Hasta, 
+              Fecha_Inicio, 
+              Fecha_Fin,
+              Fecha_Filter,
+              Localizacion,
+              Tipo_Proceso)
+
+```
+
+
+```{r message=FALSE, warning=FALSE, echo=FALSE, results='hide'}
+#Creacion de paleta custom
+
+cvi_colours = list(
+  #cvi_purples = c("#381532", "#4b1b42", "#5d2252", "#702963","#833074", "#953784", "#a83e95"),
+  my_favourite_colours = c("#F2167D", "#049DD9","#05C7F2","#F2B035", "#F28963", "#6DBF3F","#a83e95")
+)
+
+cvi_palettes = function(name, n, all_palettes = cvi_colours, type = c("discrete", "continuous")) {
+  palette = all_palettes[[name]]
+  if (missing(n)) {
+    n = length(palette)
+  }
+  type = match.arg(type)
+  out = switch(type,
+               continuous = grDevices::colorRampPalette(palette)(n),
+               discrete = palette[1:n]
+  )
+  structure(out, name = name, class = "palette")
+}
+
+cvi_palettes("my_favourite_colours", type = "discrete")
+
+
+scale_fill_cvi_d = function(name) {
+  ggplot2::scale_fill_manual(values = cvi_palettes(name,
+                                                   type = "discrete"))
+}
+
+#Declaro Funciones para recuperar los key de los filtros.
+Get_Estados_Key <- function(Estados){
+  return((estados %>% filter(Estado %in% Estados) %>% select(Estado_Key))$Estado_Key)
+}
+
+Get_Lotes_Key <- function(Lotes){
+  return((lotes %>% filter(Lote %in% Lotes) %>% select(Lote_Key))$Lote_Key)
+}
+```
+
+# Panel Principal
+
+## Column {.sidebar}
+
+```{r}
+dateRangeInput("f_RangoPeriodos", "Período:",
+               startview = "decade",
+               format = "yyyy/m/d",
+               min  = min(datos$Fecha_Inicio),
+               max    = max(datos$Fecha_Inicio),
+               start  = '2022-01-01', #min(datos$Fecha_Inicio),
+               end    = '2022-01-05' #max(datos$Fecha_Inicio)
+               )
+
+selectInput("f_Estados"
+            , label="Estados:"
+            , choice= sort(estados$Estado)
+            , selected = "All"
+            , multiple = TRUE
+            )
+
+selectInput("f_Lotes"
+            , label="Lotes:"
+            , choice=sort(lotes$Lote)
+            , selected = "All"
+            , multiple = TRUE
+            )
+
+selectInput("f_Tipos_Procesos"
+            , label="Tipos Procesos:"
+            , choice=sort(unique(datos$Tipo_Proceso))
+            , selected = "All"
+            , multiple = TRUE
+            )
+
+```
+
+Row
+-----------------------------------------------------------------------
+
+### Total Procesos {.value-box}
+
+```{r fig.height=4}
+renderValueBox({
+  desde<-as.Date(format(input$f_RangoPeriodos[1])) #as.Date("2022-01-01")
+  hasta<-as.Date(format(input$f_RangoPeriodos[2]))#as.Date("2022-06-01")
+  
+  Cantidad <- datos %>% 
+    filter(between (Fecha_Filter, desde, hasta)) %>% 
+    filter(Estado_Key %in% Get_Estados_Key(input$f_Estados) | is.null(input$f_Estados)) %>% 
+    filter(Lote_Key %in% Get_Lotes_Key(input$f_Lotes) | is.null(input$f_Lotes)) %>% 
+    filter(Tipo_Proceso %in% input$f_Tipos_Procesos | is.null(input$f_Tipos_Procesos)) %>% 
+    summarise(Cantidad = n())
+  
+  valueBox(
+      value = as.character(Cantidad$Cantidad),
+      icon = "ion-ios-cog", #ion-android-settings
+      color = "primary"
+    )
+})
+```
+
+### Finalizados OK {.value-box}
+
+```{r fig.height=4}
+renderValueBox({
+  desde<-as.Date(format(input$f_RangoPeriodos[1]))
+  hasta<-as.Date(format(input$f_RangoPeriodos[2]))
+  
+  data <- datos %>%
+    filter(between (Fecha_Filter, desde, hasta)) %>% 
+    filter(Estado_Key %in% Get_Estados_Key(input$f_Estados) | is.null(input$f_Estados)) %>% 
+    filter(Lote_Key %in% Get_Lotes_Key(input$f_Lotes) | is.null(input$f_Lotes)) %>% 
+    filter(Tipo_Proceso %in% input$f_Tipos_Procesos | is.null(input$f_Tipos_Procesos)) %>% 
+    group_by(Estado_Key) %>%
+    summarise(Cantidad = n()) %>%
+    mutate(PorcentajeDelTotal_lbl = scales::label_percent( suffix = " %")(Cantidad / sum(Cantidad)),
+           PorcentajeDelTotal = (Cantidad / sum(Cantidad))*100
+           ) %>% 
+    left_join(estados, by = c("Estado_Key" = "Estado_Key")) %>% 
+    select(Estado, Cantidad, PorcentajeDelTotal, PorcentajeDelTotal_lbl) %>% 
+    filter(Estado == "FINALIZADO")
+  
+  valueBox(
+      value = paste(as.character(data$Cantidad), "(", as.character(data$PorcentajeDelTotal_lbl), ")"),
+      icon = "ion-android-done-all",
+      color = "success"
+    )
+})
+```
+
+### Fallos (Estado = Error) {.value-box}
+
+```{r fig.height=4}
+renderValueBox({
+  desde<-as.Date(format(input$f_RangoPeriodos[1]))
+  hasta<-as.Date(format(input$f_RangoPeriodos[2]))
+  data <- datos %>%
+    filter(between (Fecha_Filter, desde, hasta)) %>% 
+    filter(Estado_Key %in% Get_Estados_Key(input$f_Estados) | is.null(input$f_Estados)) %>% 
+    filter(Lote_Key %in% Get_Lotes_Key(input$f_Lotes) | is.null(input$f_Lotes)) %>% 
+    filter(Tipo_Proceso %in% input$f_Tipos_Procesos | is.null(input$f_Tipos_Procesos)) %>% 
+    group_by(Estado_Key) %>%
+    summarise(Cantidad = n()) %>%
+    mutate(PorcentajeDelTotal_lbl = scales::label_percent( suffix = " %")(Cantidad / sum(Cantidad)),
+           PorcentajeDelTotal = (Cantidad / sum(Cantidad))*100
+           ) %>% 
+    left_join(estados, by = c("Estado_Key" = "Estado_Key")) %>% 
+    select(Estado, Cantidad, PorcentajeDelTotal, PorcentajeDelTotal_lbl) %>% 
+    filter(Estado == "ERROR")
+  
+  valueBox(
+      value = paste(as.character(data$Cantidad), "(", as.character(data$PorcentajeDelTotal_lbl), ")"),
+      icon = "ion-close", #"ion-android-close",
+      color = "danger"
+    )
+})
+```
+
+
+
+Row
+-----------------------------------------------------------------------
+
+### Estados de Procesos
+
+```{r }
+renderValueBox({
+  desde<-as.Date(format(input$f_RangoPeriodos[1]))
+  hasta<-as.Date(format(input$f_RangoPeriodos[2]))
+  
+  data <- datos %>%
+    filter(between (Fecha_Filter, desde, hasta)) %>% 
+    filter(Estado_Key %in% Get_Estados_Key(input$f_Estados) | is.null(input$f_Estados)) %>% 
+    filter(Lote_Key %in% Get_Lotes_Key(input$f_Lotes) | is.null(input$f_Lotes)) %>% 
+    filter(Tipo_Proceso %in% input$f_Tipos_Procesos | is.null(input$f_Tipos_Procesos)) %>% 
+    group_by(Estado_Key) %>%
+    summarise(Cantidad = n()) %>%
+    mutate(PorcentajeDelTotal_lbl = scales::label_percent( suffix = " %")(Cantidad / sum(Cantidad)),
+           PorcentajeDelTotal = (Cantidad / sum(Cantidad))*100
+    ) %>% 
+    left_join(estados, by = c("Estado_Key" = "Estado_Key")) %>% 
+    select(Estado, Cantidad, PorcentajeDelTotal, PorcentajeDelTotal_lbl) %>% 
+    arrange(desc(Cantidad))
+  
+  g <- ggplot(data, aes(x=reorder(Estado, -PorcentajeDelTotal),
+                        y=PorcentajeDelTotal,
+                        text = paste("Estado:", Estado, "\nPorcentaje del Total:", PorcentajeDelTotal_lbl, "\nTotal de Procesos:", Cantidad))) + 
+    geom_bar(stat = 'identity', fill = "#049DD9") +
+    xlab("Estados")+
+    ylab("% del Total")+
+    theme_classic()+
+    theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust = 0.5))
+  ggplotly(g, tooltip="text")
+})
+```
+
+
+### Tipos de Procesos
+```{r}
+renderValueBox({
+  desde<-as.Date(format(input$f_RangoPeriodos[1]))
+  hasta<-as.Date(format(input$f_RangoPeriodos[2]))
+  
+  data <- datos %>%
+    filter(between (Fecha_Filter, desde, hasta)) %>% 
+    filter(Estado_Key %in% Get_Estados_Key(input$f_Estados) | is.null(input$f_Estados)) %>% 
+    filter(Lote_Key %in% Get_Lotes_Key(input$f_Lotes) | is.null(input$f_Lotes)) %>% 
+    filter(Tipo_Proceso %in% input$f_Tipos_Procesos | is.null(input$f_Tipos_Procesos)) %>% 
+    mutate(Inicio = format.Date(Fecha_Inicio, "%d/%m%/%y")) %>% 
+    group_by(Inicio, Tipo_Proceso) %>%
+    mutate(Duracion = if_else( (!is.na(Fecha_Inicio) & !is.na(Fecha_Fin))
+                      ,time_length(Fecha_Fin - Fecha_Inicio, unit = "seconds")
+                      , 0)) %>% 
+    filter(Duracion >= 0) %>% #Para no considerar los casos que estan mal las marcas.
+    summarise(Cantidad = n(),
+              Duracion = sum(Duracion)
+             ) %>%
+    mutate(PorcentajeDelTotal_lbl = scales::label_percent( suffix = " %")(Cantidad / sum(Cantidad)),
+           PorcentajeDelTotal = (Cantidad / sum(Cantidad))*100,
+           Promedio = (Duracion/Cantidad),
+           Duracion_Min = Duracion/60,
+           Promedio_Min = (Duracion_Min/Cantidad),
+    ) %>% 
+    select(Inicio, Tipo_Proceso, Cantidad, PorcentajeDelTotal, PorcentajeDelTotal_lbl, Duracion, Promedio, Duracion_Min, Promedio_Min) %>% 
+    arrange(desc(Inicio))
+  
+  g <- data %>% 
+    ggplot(aes(x=Inicio,
+               y=Duracion_Min,
+               fill=Tipo_Proceso,
+               text = paste("Fecha Ejecución:", Inicio, "\nDuración:", 
+                            Duracion_Min, "(min)\nTotal de Procesos:", Cantidad,
+                            "\nPorcentaje:", PorcentajeDelTotal_lbl)
+               )) +
+    geom_bar(position="dodge", stat = 'identity')+
+    xlab("Fecha Ejecución")+
+    ylab("Duración (min)")+
+    scale_fill_discrete("Tipo Proceso") +
+    theme(legend.position="bottom")+
+    theme_classic()+
+    scale_fill_cvi_d("my_favourite_colours")
+  
+  
+  ggplotly(g, tooltip="text")
+
+})
+```
+
+
+Row
+-----------------------------------------------------------------------
+
+### Comparacion Dia de la Semana
+
+```{r}
+renderValueBox({
+  desde<-as.Date(format(input$f_RangoPeriodos[1]))
+  hasta<-as.Date(format(input$f_RangoPeriodos[2]))
+  
+  data <- datos %>%
+        filter(between (Fecha_Filter, desde, hasta)) %>% 
+    filter(Estado_Key %in% Get_Estados_Key(input$f_Estados) | is.null(input$f_Estados)) %>% 
+    filter(Lote_Key %in% Get_Lotes_Key(input$f_Lotes) | is.null(input$f_Lotes)) %>% 
+    filter(Tipo_Proceso %in% input$f_Tipos_Procesos | is.null(input$f_Tipos_Procesos)) %>% 
+    mutate(Inicio = format.Date(Fecha_Inicio, "%d/%m%/%y")) %>% 
+    group_by(Inicio, Tipo_Proceso) %>%
+    mutate(Duracion = if_else( (!is.na(Fecha_Inicio) & !is.na(Fecha_Fin))
+                               ,time_length(Fecha_Fin - Fecha_Inicio, unit = "seconds")
+                               , 0)) %>% 
+    filter(Duracion >= 0) %>% #Para no considerar los casos que estan mal las marcas.
+    summarise(Cantidad = n(),
+              Duracion = sum(Duracion)
+    ) %>%
+    mutate(PorcentajeDelTotal_lbl = scales::label_percent( suffix = " %")(Cantidad / sum(Cantidad)),
+           PorcentajeDelTotal = (Cantidad / sum(Cantidad))*100,
+           Promedio = (Duracion/Cantidad),
+           Duracion_Min = Duracion/60,
+           Promedio_Min = (Duracion_Min/Cantidad),
+           Inicio_Dia = wday(Inicio, label=TRUE, abbr=FALSE)
+    ) %>% 
+    select(Inicio, Inicio_Dia, Tipo_Proceso, Cantidad, PorcentajeDelTotal, PorcentajeDelTotal_lbl, Duracion, Promedio, Duracion_Min, Promedio_Min) %>% 
+    arrange(desc(Inicio))
+  
+  g <- 
+    data %>% 
+    ggplot(aes(x=Inicio,
+               y=Cantidad,
+               fill=Tipo_Proceso,
+               #group = Inicio,
+               group=2,
+               text = paste("Fecha Ejecución:", Inicio, 
+                            "\nDuración:", Duracion_Min, 
+                            "(min)\nTotal de Procesos:", Cantidad,
+                            "\nPorcentaje:", PorcentajeDelTotal_lbl,
+                            "\nDia de la semana:", Inicio_Dia,
+                            "\nTipo Proceso:", Tipo_Proceso
+                            )
+    )) +
+    geom_bar(stat = 'identity')+
+    facet_grid(~Inicio_Dia,scales="free_x", space="free_x", switch="x")+ #scales y space quitan valores null del eje X.
+    xlab("Fecha Ejecución")+
+    ylab("Duración (min)")+
+    scale_fill_discrete("Tipo Proceso") +
+    theme(legend.position="bottom")+
+    theme_classic()+
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 0.5))+
+    scale_fill_cvi_d("my_favourite_colours")
+  
+  
+  ggplotly(g, tooltip="text")
+
+})
+```
+
+# Resumen Diario
+
+## Column {.sidebar}
+
+```{r}
+dateInput("f_Fecha", "Fecha: ", value = "2022-01-05", format = "yyyy/m/d")
+
+selectInput("f_Lotes_p2"
+            , label="Lotes:"
+            , choice=sort(lotes$Lote)
+            , selected = "All"
+            , multiple = TRUE
+            )
+```
+
+
+Row
+-----------------------------------------------------------------------
+
+### Procesos diarios (No aplica filtro de Lotes)
+
+```{r}
+renderDT({
+#renderValueBox({
+  fecha<-as.Date(format(input$f_Fecha)) #as.Date("2022-01-01")
+  tmp <- datos %>% 
+  filter(Fecha_Filter == fecha) %>% 
+  mutate(Duracion = if_else( (!is.na(Fecha_Inicio) & !is.na(Fecha_Fin))
+                             ,time_length(Fecha_Fin - Fecha_Inicio, unit = "seconds")
+                             , 0)) %>% 
+  mutate(DuracionSobreTotal_lbl = scales::label_percent( suffix = " %")(Duracion / sum(Duracion)),
+         DuracionSobreTotal = (Duracion / sum(Duracion))*100,
+         Duracion = Duracion/60,
+         Fecha_Desde = format.Date(Fecha_Desde, "%d/%m%/%Y"),
+         Fecha_Hasta = format.Date(Fecha_Hasta, "%d/%m%/%Y"),
+         Fecha_Inicio = format.Date(Fecha_Inicio, "%d/%m%/%y  %H:%M:%S"),
+         Fecha_Fin = format.Date(Fecha_Fin, "%d/%m%/%y %H:%M:%S")
+         ) %>% 
+  arrange(desc(Duracion)) %>% 
+  left_join(estados, by = c("Estado_Key" = "Estado_Key")) %>% 
+  left_join(lotes, by = c("Lote_Key" = "Lote_Key")) %>% 
+  select(Proceso_Key,
+         Lote,
+         Modulo,
+         Tipo_Proceso,
+         Estado,
+         Fecha_Desde,
+         Fecha_Hasta,
+         Fecha_Inicio,
+         Fecha_Fin,
+         Duracion,
+         DuracionSobreTotal_lbl
+         )
+  colnames(tmp) <- c("Proceso Key",
+                     "Lote",
+                     "Modulo",
+                     "Tipo Proceso",
+                     "Estado",
+                     "Fecha Desde",
+                     "Fecha Hasta",
+                     "Fecha Inicio",
+                     "Fecha Fin",
+                     "Duracion (min)",
+                     "% Sobre Total")
+  
+  datatable(
+    tmp, 
+    escape = FALSE, 
+    selection = "none", 
+    rownames = FALSE, 
+    style = "bootstrap"
+  )
+
+})
+```
+
+Row
+-----------------------------------------------------------------------
+
+### Procesos del dia (aplica filtro de Lotes)
+
+```{r}
+renderDT({
+
+  fecha<-as.Date(format(input$f_Fecha)) #as.Date("2022-01-01")
+  tmp <- datos %>% 
+  filter(Fecha_Filter == fecha) %>% 
+  filter(Lote_Key %in% Get_Lotes_Key(input$f_Lotes_p2) | is.null(input$f_Lotes_p2)) %>% 
+  mutate(Duracion = if_else( (!is.na(Fecha_Inicio) & !is.na(Fecha_Fin))
+                             ,time_length(Fecha_Fin - Fecha_Inicio, unit = "seconds")
+                             , 0)) %>% 
+  mutate(DuracionSobreTotal_lbl = scales::label_percent( suffix = " %")(Duracion / sum(Duracion)),
+         DuracionSobreTotal = (Duracion / sum(Duracion))*100,
+         Duracion = Duracion/60,
+         Fecha_Desde = format.Date(Fecha_Desde, "%d/%m%/%Y"),
+         Fecha_Hasta = format.Date(Fecha_Hasta, "%d/%m%/%Y"),
+         Fecha_Inicio = format.Date(Fecha_Inicio, "%d/%m%/%y  %H:%M:%S"),
+         Fecha_Fin = format.Date(Fecha_Fin, "%d/%m%/%y %H:%M:%S")
+         ) %>% 
+  arrange(desc(Duracion)) %>% 
+  left_join(estados, by = c("Estado_Key" = "Estado_Key")) %>% 
+  left_join(lotes, by = c("Lote_Key" = "Lote_Key")) %>% 
+  select(Proceso_Key,
+         Lote,
+         Modulo,
+         Tipo_Proceso,
+         Estado,
+         Fecha_Desde,
+         Fecha_Hasta,
+         Fecha_Inicio,
+         Fecha_Fin,
+         Duracion,
+         DuracionSobreTotal_lbl
+         )
+  colnames(tmp) <- c("Proceso Key",
+                     "Lote",
+                     "Modulo",
+                     "Tipo Proceso",
+                     "Estado",
+                     "Fecha Desde",
+                     "Fecha Hasta",
+                     "Fecha Inicio",
+                     "Fecha Fin",
+                     "Duracion (min)",
+                     "% Sobre Total")
+  
+  datatable(
+    tmp, 
+    escape = FALSE, 
+    selection = "none", 
+    rownames = FALSE, 
+    style = "bootstrap"
+  )
+
+})
+```
+
+
+# Información
+
+#### Selección
+
+Para este trabajo escogí trabajar con un con problema que tenemos a diario en la empresa donde trabajo. Se trata del seguimiento de los procesos que actualizan el Data Warehouse. Para esto existe un esquema de log donde además de tener su inicio y fin, se obtiene información de pasos intermedios o críticos, errores, validaciones, etc. Por cuestiones de tiempo y complejidad decidí únicamente abocarme a la demora de los procesos. Decimos que un Lote tiene el punta a punta de un ETL, es decir, Extracción, Transformación y Carga de información cada uno de estos pasos es un Proceso o Modulo. Para que el Lote finalice de punta a punta tenemos distintos "Tipos de Procesos" (Extracción, Transformación, Carga) que es una clasificación de los Módulos que contiene el Lotes.
+
+Otras variables:
+Tipo de Proceso, describe el objetivo del módulo.
+Estado del proceso, describe si está en ejecución, finalizo bien, finalizo con errores, etc.
+
+Nota: La información se extrae de una base de datos la cual no solo se utiliza para registrar log, sino que también se utiliza para el procesamiento. Entonces, algunas veces se comete el error de realizar un procesamiento sobre las marcas existentes y no generar una nueva marca. Estos casos son pocos, es por eso que decidí no quitarlos del data set inicial y si ocultar esta información en la graficas para casos donde teníamos una duración negativa. Por ejemplo, si filtran alguna fecha de dos otros meses atrás es muy común ver procesos en estado "en ejecución" no es que se estén ejecutando aun, sino que es un error de marcas, es decir, no se actualizan los logs como corresponden. O hubo alguna modificación manual. 
+
+#### Limpieza
+
+Para la limpieza de datos no hubo cuestiones de gran complejidad, simplemente se tuvo que trabajar en fechas, es decir, conversión de string a fechas y formatos de visualización, luego se generó la variable "Tipo de Proceso" la cual se genera a partir del nombre del Módulo siguiendo las siguientes reglas:
+
+
+```{r warning=FALSE}
+
+Sub_Fijo <- c("pr", "tp", "ts", "tsm", "rp", "Otros")
+Tipo_Proceso <- c("Programación", "Transformación Primaria", "Transformación Secundaria", "Procesado de Modelo", "Reportes", "Sin Clasificar" )
+
+tmp <- data.frame(Sub_Fijo, Tipo_Proceso)
+colnames(tmp) <- c("Sub Fijo", "Tipo Proceso")
+#print (df)
+
+tmp
+  
+```
+
+
+ 
